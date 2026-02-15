@@ -1,6 +1,6 @@
 # Godot 传感器数据传输与 3D 可视化项目 - 进度文档
 
-**最后更新**: 2026-02-15
+**最后更新**: 2026-02-15 18:20
 
 ---
 
@@ -179,12 +179,17 @@ godot_pingpong/
 
 ```
 godot_client:
+- d20c811 Fix recording frame saving and add playback debug
 - f6db5d8 Add recording playback system
 - 4197649 Rollback pairing system, keep recording feature
 
 godot_server:
+- 61bce5d Add debug logging for playback
 - 8ae32e2 Add recording playback and debugging system
 - 37b3992 Rollback pairing system, keep recording feature
+
+主仓库:
+- 39319e6 Add project progress documentation
 ```
 
 ---
@@ -197,8 +202,32 @@ godot_server:
 
 ---
 
+## 测试状态
+
+### 2026-02-15 测试记录
+
+#### 已测试通过 ✅
+- [x] 实时数据传输（手机→电脑）
+- [x] 3D 模型实时跟随手机旋转
+- [x] 录制功能（开始/停止录制）
+- [x] 录制文件保存到本地
+- [x] 录制列表显示
+
+#### 待进一步测试 ⏳
+- [ ] 回放功能（数据从手机发送到电脑）
+- [ ] 电脑端接收回放数据并播放
+- [ ] 本地回放（按 L/P 键）
+
+#### 发现的问题 🔧
+1. **录制帧数为 0** - 已修复：send_sensor_data 中未保存帧到 recorded_frames
+2. **回放无反应** - 添加调试日志，需要进一步测试验证
+3. **轨迹漂移** - 算法问题，需要后续优化
+
+---
+
 ## 下一步计划
 
+- [ ] 完成回放功能测试和调试
 - [ ] 优化轨迹算法，减少漂移误差
 - [ ] 添加更多滤波算法（卡尔曼滤波）
 - [ ] 支持多段录制拼接
