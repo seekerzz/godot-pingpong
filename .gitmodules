@@ -1,0 +1,6 @@
+[submodule "godot_client"]
+	path = godot_client
+	url = https://github.com/seekerzz/godot-client.git
+[submodule "godot_server"]
+	path = godot_server
+	url = https://github.com/seekerzz/godot-server.git
