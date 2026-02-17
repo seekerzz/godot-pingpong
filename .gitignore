@@ -1,0 +1,13 @@
+# Project progress documentation
+PROJECT_PROGRESS.md
+
+# Log files
+*.txt
+*.log
+nul
+NUL
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
