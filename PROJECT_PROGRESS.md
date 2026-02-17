@@ -223,6 +223,71 @@ godot_server:
 2. **回放无反应** - 添加调试日志，需要进一步测试验证
 3. **轨迹漂移** - 算法问题，需要后续优化
 
+### 2026-02-15 姿态估计算法修复
+
+#### 修复内容 ✅
+1. **坐标系转换** - 新增 `convert_android_to_godot()` 函数
+   - Android: X右, Y上, Z朝向用户（屏幕外）
+   - Godot: X右, Y上, Z朝向屏幕内
+   - 修复了Z轴方向相反导致的姿态镜像问题
+
+2. **姿态计算逻辑重写** - 使用互补滤波策略
+   - 基于重力计算绝对俯仰和横滚（无累积误差）
+   - 陀螺仪仅用于偏航角（yaw）积分
+   - 添加 `_current_yaw` 状态变量跟踪水平旋转
+   - 修复了重力旋转与陀螺仪积分的双重计算问题
+
+3. **磁力计融合** - 添加 `compute_yaw_from_magneto()` 函数
+   - 使用磁力计计算绝对航向
+   - 互补滤波缓慢修正偏航角漂移（2%融合比例）
+
+4. **代码清理** - 删除重复的 `reset_view_with_calibration()` 函数定义
+
+#### 新增函数
+- `convert_android_to_godot(v: Vector3) -> Vector3`
+- `compute_rotation_from_gravity(gravity: Vector3) -> Quaternion`
+- `compute_yaw_from_magneto(magneto: Vector3, pitch: float, roll: float) -> float`
+
+#### 待测试 ⏳
+- [ ] 手机姿态是否正确映射到3D模型（平放时是否水平）
+- [ ] 偏航角积分是否稳定
+- [ ] 磁力计校准效果
+
+### 2026-02-15 姿态和轨迹修复 - 当前状态
+
+#### 已修复问题 ✅
+1. **姿态显示问题** - 重写 `compute_imu_orientation` 函数
+   - 使用完整的基向量构建旋转矩阵（X/Y/Z三轴）
+   - 正确映射坐标系：Android Z向屏幕外 -> Godot Y向上
+   - 添加模型修正旋转，确保平放时模型水平
+
+2. **位置计算Bug** - 修复 `_update_position_improved` 函数
+   - 删除重复的位置更新代码（原第449行和第462行重复）
+   - 实现零速更新(ZUPT)算法，静止时自动衰减速度
+   - 添加运动检测和加速度滤波
+   - 降低积分系数，减少漂移累积
+
+#### 当前实现
+**姿态计算 (`compute_imu_orientation`)**：
+- 基于重力向量构建完整坐标系
+- X轴：Y轴与世界前向的叉积
+- Y轴：与重力相反方向（向上）
+- Z轴：X轴与Y轴的叉积
+- 模型修正：绕X轴-90度旋转
+
+**轨迹计算 (`_update_position_improved`)**：
+- 运动阈值：0.3 m/s²
+- 零速更新：连续5帧静止时速度快速衰减
+- 速度阻尼：运动时0.95，静止时0.8
+- 最大速度限制：3 m/s
+- 运动范围：±10米
+
+#### 待测试
+- [ ] 手机平放时模型是否水平
+- [ ] 手机旋转时姿态是否正确跟随
+- [ ] 挥动时轨迹是否正确跟随
+- [ ] 静止时轨迹是否停止漂移
+
 ---
 
 ## 下一步计划
@@ -251,6 +316,82 @@ godot_server:
 - **电脑 IP**: 192.168.50.64
 - **端口**: 49555 (固定)
 - **协议**: UDP
+
+---
+
+---
+
+## 2026-02-17 协议重构与姿态校准
+
+### 主要变更
+
+#### 通信协议升级
+- **旧协议**: JSON文本格式，包含原始传感器数据（accel, gyro, gravity, magneto）
+- **新协议**: 二进制流（28字节固定包）
+  - UserAccel.x/y/z (float, 12 bytes) - 剔除重力后的线性加速度
+  - Quaternion.x/y/z/w (float, 16 bytes) - 融合后的姿态
+
+#### 客户端重构 (godot_client/sensor_sender.gd)
+1. **发送频率**: 从 `_process` 的20Hz移动到 `_physics_process` 的60Hz
+2. **传感器融合**:
+   - UserAccel = accelerometer - gravity，模长<0.2时归零防抖
+   - 基于重力和陀螺仪计算姿态四元数
+3. **二进制协议**: 使用 StreamPeerBuffer 打包28字节数据
+4. **录制格式更新**: 保存 user_accel + quaternion 结构
+5. **回放适配**: 使用与实时相同的二进制协议发送
+
+#### 服务端重构 (godot_server/sensor_server.gd)
+1. **二进制解析**: 使用 StreamPeerBuffer 解析28字节数据包
+2. **抗漂移算法** (弹性回中):
+   ```gdscript
+   velocity += user_accel * delta
+   velocity = velocity.lerp(Vector3.ZERO, friction * delta)
+   position += velocity * delta
+   position = position.lerp(origin_position, return_speed * delta)
+   ```
+3. **导出变量**: friction=5.0, return_speed=2.0（可在编辑器调整）
+4. **可视化升级**: 手机模型 → 乒乓球拍模型
+   - Pivot: 旋转中心（手柄底部）
+   - Handle: 棕色圆柱体手柄
+   - Face: 红色/黑色双面橡胶拍面
+   - TrailEmitter: GPUParticles3D拖尾效果
+   - Lightsaber: 光剑效果显示加速度方向和大小
+5. **调试辅助**: Label3D显示UserAccel模长
+
+#### 姿态校准系统 (新增)
+1. **校准按钮**: UI中添加"校准姿态 (K)"按钮
+2. **四步校准流程**:
+   - 步骤1: 标准平放（屏幕向上，底部朝向玩家）
+   - 步骤2: 向右旋转90度
+   - 步骤3: 向左旋转90度
+   - 步骤4: 竖直握持（屏幕朝向玩家）
+3. **校准数据保存**: 保存到 `calibration_data.json`
+4. **坐标转换**: 基于校准数据优化 `(x, y, z, w) → (x, -z, y, w)`
+
+### 当前坐标映射 (基于校准数据)
+| Android | → | Godot |
+|---------|---|-------|
+| X (右) | → | X (右) |
+| Y (顶部) | → | -Z (朝向屏幕/远方) |
+| Z (屏幕外/上) | → | Y (上/天空) |
+
+### 待解决问题
+- [ ] 姿态对齐验证：手机平放时球拍是否正确显示
+- [ ] 坐标系精确调整：可能需要进一步校准
+
+### 人工验证清单
+
+#### 客户端验证
+- [x] 手机端显示的UserAccel数值平稳，静止时接近(0,0,0)
+- [x] 点击"回放"时，服务端能接收到数据并产生动作
+- [x] 代码中使用 StreamPeerBuffer 进行打包
+
+#### 服务端验证
+- [ ] 手持手机静止时，球拍模型自动回到屏幕中心
+- [ ] 快速挥动手机，球拍有明显挥动动作和拖尾
+- [ ] 停止挥动后球拍迅速复位
+- [ ] 球拍绕着手柄底部旋转（而非中心）
+- [ ] 姿态对齐：手机平放时球拍水平，手柄朝向玩家
 
 ---
 
